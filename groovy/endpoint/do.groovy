@@ -201,8 +201,8 @@ class EndpointValidator {
     // 🌐 WALIDACJA WEBSOCKET/TCP ENDPOINTS
     String validateNetworkEndpoint(String uri) {
         if (uri.startsWith('websocket:')) return validateSocketEndpoint(uri, ~/ws:\/\/([^\/]+)/, '80', 'WebSocket')
-        if (uri.startsWith('netty:')) return validateSocketEndpoint(uri, ~/tcp:\/\/([^:]+):(\d+)/, '8080', 'Netty TCP')
-        if (uri.startsWith('mina:')) return validateSocketEndpoint(uri, ~/tcp:\/\/([^:]+):(\d+)/, '8080', 'Mina TCP')
+        if (uri.startsWith('netty:')) return validateSocketEndpoint(uri, ~/tcp:\/\/([^:]+):(\d+)/, '8081', 'Netty TCP')
+        if (uri.startsWith('mina:')) return validateSocketEndpoint(uri, ~/tcp:\/\/([^:]+):(\d+)/, '8081', 'Mina TCP')
         return "⚠️ Network endpoint type unknown"
     }
 
@@ -321,7 +321,7 @@ try {
 // 💡 BONUS: HEALTHCHECK ENDPOINT
 // Dodaj to do monitorowania:
 /*
-from("jetty:http://localhost:8080/health")
+from("jetty:http://localhost:8081/health")
 .setBody(constant('{"status":"OK","validated_endpoints":true}'))
 .setHeader("Content-Type", constant("application/json"))
 */

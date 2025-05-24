@@ -42,7 +42,7 @@ def loadConfig() {
     config.putIfAbsent('OLLAMA_PORT', '11434')
     config.putIfAbsent('OLLAMA_MODEL', 'qwen2.5:1.5b')
     config.putIfAbsent('TEST_EMAIL', 'info@softreck.com')
-    config.putIfAbsent('HAWTIO_PORT', '8080')
+    config.putIfAbsent('HAWTIO_PORT', '8081')
     config.putIfAbsent('JMX_PORT', '1099')
 
     return config
@@ -94,16 +94,29 @@ def metrics = new EmailMetrics()
 metrics.maxEmails = Integer.parseInt(config['EMAIL_LIMIT'])
 
 // === HELPER FUNCTIONS ===
-def testOllama() {
+def testOllama(config) {
     try {
-        def url = "http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}/api/tags"
+        def host = config['OLLAMA_HOST'] ?: 'localhost'
+        def port = config['OLLAMA_PORT'] ?: '11434'
+        def url = "http://${host}:${port}/api/tags"
         def connection = new URL(url).openConnection()
         connection.setConnectTimeout(5000)
+        connection.setReadTimeout(5000)
+        
+        // Test connection
+        connection.connect()
         def response = connection.inputStream.text
-        println "✅ Ollama: Connected and ready"
+        
+        // Test if we can parse the response
+        new groovy.json.JsonSlurper().parseText(response)
+        
+        println "✅ Ollama: Connected and ready at ${url}"
         return true
     } catch (Exception e) {
-        println "❌ Ollama: Failed (${e.message})"
+        println "❌ Ollama: Connection failed (${e.message})"
+        if (e instanceof java.net.ConnectException) {
+            println "   Please make sure Ollama is running and accessible at ${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}"
+        }
         return false
     }
 }
@@ -228,23 +241,51 @@ Zespół Obsługi Klienta"""
 }
 
 // === MAIN APPLICATION ===
-def ollamaAvailable = testOllama()
+// Declare variables at script scope
+def ollamaAvailable = false
 
-println """
-🚀 STARTING EMAIL PROCESSOR
-==========================
-📧 Processing up to ${maxEmails} emails
-🤖 AI Responses: ${ollamaAvailable ? 'Enabled' : 'Disabled'}
-⏳ Check interval: ${config['CHECK_INTERVAL_SECONDS']} seconds
+try {
+    println "🔧 Initializing email processor..."
+    
+    // Initialize metrics
+    try {
+        println "📊 Setting max emails to: ${config['EMAIL_LIMIT']}"
+        metrics.maxEmails = Integer.parseInt(config['EMAIL_LIMIT'])
+        println "✅ Metrics initialized with maxEmails: ${metrics.maxEmails}"
+    } catch (NumberFormatException e) {
+        println "❌ Invalid EMAIL_LIMIT value: ${config['EMAIL_LIMIT']}"
+        throw e
+    }
 
-Starting routes...
-"""
+    // Test Ollama connection
+    println "🔌 Testing Ollama connection..."
+    ollamaAvailable = testOllama(config)
+    
+    // Show startup message
+    def startupMessage = """
+    🚀 STARTING EMAIL PROCESSOR
+    ==========================
+    📧 Email Processing: Mock=${config['MOCK_EMAILS']}, Limit=${metrics.maxEmails}
+    🤖 Ollama: http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}
+    📦 Model: ${config['OLLAMA_MODEL']}
+    ⏳ Check interval: ${config['CHECK_INTERVAL_SECONDS']}s
+    
+    Starting services...
+    """
+    println startupMessage
+    
+} catch (Exception e) {
+    println "❌ ERROR DURING INITIALIZATION: ${e.message}"
+    println "Stack trace:"
+    e.printStackTrace()
+    System.exit(1)
+}
 
 try {
     Main main = new Main()
 
     // Configure Camel context
-    main.configure().withRoutesBuilder(new RouteBuilder() {
+    main.configure().addRoutesBuilder(new RouteBuilder() {
         @Override
         void configure() throws Exception {
 
@@ -331,8 +372,8 @@ try {
             from("direct:updateMetrics")
                 .routeId("metrics-updater")
                 .process { exchange ->
-                    def metrics = EmailMetrics.getMetrics()
-                    log.info("📊 Metrics - Total: ${metrics.totalEmails}, Success: ${metrics.successEmails}, Errors: ${metrics.errorEmails}, Rate: ${metrics.successRate.round(1)}%")
+                    def metricsData = metrics.getMetrics()
+                    log.info("📊 Metrics - Total: ${metricsData.totalEmails}, Success: ${metricsData.successEmails}, Errors: ${metricsData.errorEmails}, Rate: ${metricsData.successRate.round(1)}%")
                 }
 
             // Error handler
@@ -340,7 +381,7 @@ try {
                 .routeId("error-handler")
                 .log("❌ Error handler triggered: \${exception.message}")
                 .process { exchange ->
-                    errorCount++
+                    metrics.incrementErrorCount()
                     def error = exchange.getProperty("CamelExceptionCaught")
                     log.error("Error details: ${error?.message}")
                 }
