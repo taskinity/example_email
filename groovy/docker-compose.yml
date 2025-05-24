@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # Ollama Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODELS=/root/.ollama/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Groovy Email Processor
+  email-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: email-processor
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./email.groovy:/app/email.groovy:ro
+      - ./.env:/app/.env:ro
+      - ./logs:/app/logs
+    environment:
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+      - MOCK_EMAILS=${MOCK_EMAILS:-true}
+      - SMTP_SERVER=${SMTP_SERVER:-mailhog}
+      - IMAP_SERVER=${IMAP_SERVER:-mailhog}
+      - SMTP_PORT=${SMTP_PORT:-1025}
+      - IMAP_PORT=${IMAP_PORT:-1025}
+    depends_on:
+      ollama:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    networks:
+      - email-network
+
+  # MailHog for email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    environment:
+      - MH_HOSTNAME=mailhog
+      - MH_SMTP_BIND_ADDR=0.0.0.0:1025
+      - MH_API_BIND_ADDR=0.0.0.0:8025
+      - MH_UI_BIND_ADDR=0.0.0.0:8025
+    networks:
+      - email-network
+
+networks:
+  email-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
