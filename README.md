@@ -324,7 +324,7 @@ You can extend this example by:
     
     // Initialize flow visualizer
     window.flowVisualizer = new DSLFlowVisualizer({
-      codeBlockSelector: 'pre code.language-dsl, pre code.language-flow'
+      codeBlockSelector: 'pre code.language-dsl'
     });
   });
 </script>
