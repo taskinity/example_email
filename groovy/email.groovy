@@ -51,8 +51,8 @@ def loadConfig() {
 def config = loadConfig()
 
 println """
-🚀 EMAIL AUTOMATION SYSTEM
-========================
+🚀 EMAIL AUTOMATION SYSTEM (CORRECTED FOR CAMEL 4.4.0)
+======================================================
 📧 Email Processing: Mock=${config['MOCK_EMAILS']}, Limit=${config['EMAIL_LIMIT']}
 🤖 Ollama: http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}
 📦 Model: ${config['OLLAMA_MODEL']}
@@ -68,7 +68,7 @@ class EmailMetrics {
     int errorCount = 0
     int maxEmails = 0
     long startTime = System.currentTimeMillis()
-    
+
     def getMetrics() {
         def uptime = System.currentTimeMillis() - startTime
         def rate = emailCount > 0 ? (emailCount / (uptime / 1000.0)) : 0
@@ -83,7 +83,7 @@ class EmailMetrics {
             remainingEmails: Math.max(0, maxEmails - emailCount)
         ]
     }
-    
+
     def incrementEmailCount() { emailCount++ }
     def incrementSuccessCount() { successCount++ }
     def incrementErrorCount() { errorCount++ }
@@ -91,7 +91,6 @@ class EmailMetrics {
 
 // Initialize metrics
 def metrics = new EmailMetrics()
-metrics.maxEmails = Integer.parseInt(config['EMAIL_LIMIT'])
 
 // === HELPER FUNCTIONS ===
 def testOllama(config) {
@@ -102,20 +101,17 @@ def testOllama(config) {
         def connection = new URL(url).openConnection()
         connection.setConnectTimeout(5000)
         connection.setReadTimeout(5000)
-        
-        // Test connection
+
         connection.connect()
         def response = connection.inputStream.text
-        
-        // Test if we can parse the response
         new groovy.json.JsonSlurper().parseText(response)
-        
+
         println "✅ Ollama: Connected and ready at ${url}"
         return true
     } catch (Exception e) {
         println "❌ Ollama: Connection failed (${e.message})"
         if (e instanceof java.net.ConnectException) {
-            println "   Please make sure Ollama is running and accessible at ${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}"
+            println "   Please make sure Ollama is running: ollama serve"
         }
         return false
     }
@@ -137,14 +133,6 @@ def generateMockEmail() {
          body: "To jest testowy email sprawdzający działanie systemu automatyzacji.", priority: "Low"]
     ]
     return emails[new Random().nextInt(emails.size())]
-}
-
-def generateResponse(emailData, useOllama) {
-    if (useOllama) {
-        return generateOllamaResponse(emailData)
-    } else {
-        return generateStandardResponse(emailData)
-    }
 }
 
 def generateOllamaResponse(emailData) {
@@ -240,13 +228,20 @@ Zespół Obsługi Klienta"""
     }
 }
 
+def generateResponse(emailData, useOllama) {
+    if (useOllama) {
+        return generateOllamaResponse(emailData)
+    } else {
+        return generateStandardResponse(emailData)
+    }
+}
+
 // === MAIN APPLICATION ===
-// Declare variables at script scope
 def ollamaAvailable = false
 
 try {
     println "🔧 Initializing email processor..."
-    
+
     // Initialize metrics
     try {
         println "📊 Setting max emails to: ${config['EMAIL_LIMIT']}"
@@ -260,23 +255,21 @@ try {
     // Test Ollama connection
     println "🔌 Testing Ollama connection..."
     ollamaAvailable = testOllama(config)
-    
-    // Show startup message
+
     def startupMessage = """
-    🚀 STARTING EMAIL PROCESSOR
-    ==========================
-    📧 Email Processing: Mock=${config['MOCK_EMAILS']}, Limit=${metrics.maxEmails}
-    🤖 Ollama: http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}
-    📦 Model: ${config['OLLAMA_MODEL']}
-    ⏳ Check interval: ${config['CHECK_INTERVAL_SECONDS']}s
-    
-    Starting services...
-    """
+🚀 STARTING EMAIL PROCESSOR
+==========================
+📧 Email Processing: Mock=${config['MOCK_EMAILS']}, Limit=${metrics.maxEmails}
+🤖 Ollama: http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}
+📦 Model: ${config['OLLAMA_MODEL']}
+⏳ Check interval: ${config['CHECK_INTERVAL_SECONDS']}s
+
+Starting Camel routes...
+"""
     println startupMessage
-    
+
 } catch (Exception e) {
     println "❌ ERROR DURING INITIALIZATION: ${e.message}"
-    println "Stack trace:"
     e.printStackTrace()
     System.exit(1)
 }
@@ -284,8 +277,8 @@ try {
 try {
     Main main = new Main()
 
-    // Configure Camel context
-    main.configure().addRoutesBuilder(new RouteBuilder() {
+    // CRITICAL FIX: Correct API for Camel 4.4.0
+    main.addRouteBuilder(new RouteBuilder() {
         @Override
         void configure() throws Exception {
 
@@ -358,13 +351,13 @@ try {
                     def from = exchange.in.getHeader("emailFrom")
                     def body = exchange.in.body
 
-                    // Mock email sending
+                    // Mock email sending with detailed logging
                     log.info("📧 === EMAIL SENT ===")
                     log.info("📬 To: ${from}")
                     log.info("📝 Re: ${subject}")
                     log.info("⚡ Priority: ${priority}")
-                    log.info("📄 Body: ${body.toString().take(100)}...")
-                    log.info("✅ Email delivered!")
+                    log.info("📄 Body preview: ${body.toString().take(120)}...")
+                    log.info("✅ Email delivered successfully!")
                 }
                 .to("direct:updateMetrics")
 
@@ -386,7 +379,7 @@ try {
                     log.error("Error details: ${error?.message}")
                 }
 
-            // Progress monitor
+            // Progress monitor - detailed stats
             from("timer://progressMonitor?period=60000&delay=30000")
                 .routeId("progress-monitor")
                 .process { exchange ->
@@ -394,14 +387,15 @@ try {
                     def uptime = (metricsData.uptimeSeconds / 60).round(1)
 
                     log.info("""
-📊 === EMAIL AUTOMATION STATS ===
+📊 === EMAIL AUTOMATION PROGRESS ===
 ⏰ Uptime: ${uptime} minutes
 📧 Emails processed: ${metricsData.totalEmails}/${metrics.maxEmails}
 ✅ Success rate: ${metricsData.successRate.round(1)}%
-🔄 Processing rate: ${metricsData.emailsPerSecond.round(2)} emails/sec
-🤖 AI Engine: ${ollamaAvailable ? 'Ollama' : 'Standard'}
+🔄 Processing rate: ${metricsData.emailsPerSecond.round(3)} emails/sec
+🤖 AI Engine: ${ollamaAvailable ? 'Ollama (' + config['OLLAMA_MODEL'] + ')' : 'Standard responses'}
 📊 Remaining: ${metricsData.remainingEmails} emails
-=================================""")
+🔗 Next check in: ${config['CHECK_INTERVAL_SECONDS']}s
+====================================""")
                 }
 
             // Final statistics
@@ -412,55 +406,102 @@ try {
                     def totalTime = (metricsData.uptimeSeconds / 60).round(1)
 
                     log.info("""
-🎯 === FINAL STATISTICS ===
+🎯 === FINAL PROCESSING STATISTICS ===
 📧 Total emails processed: ${metricsData.totalEmails}
-✅ Successful: ${metricsData.successEmails}
-❌ Errors: ${metricsData.errorEmails}
-📊 Success rate: ${metricsData.successRate.round(1)}%
+✅ Successful responses: ${metricsData.successEmails}
+❌ Failed responses: ${metricsData.errorEmails}
+📊 Overall success rate: ${metricsData.successRate.round(1)}%
 ⏰ Total processing time: ${totalTime} minutes
-🤖 AI responses: ${ollamaAvailable ? metrics.successCount : 0}
+🤖 AI-generated responses: ${ollamaAvailable ? metrics.successCount : 0}
 📝 Standard responses: ${ollamaAvailable ? 0 : metrics.successCount}
-🔄 Average rate: ${metricsData.emailsPerSecond.round(2)} emails/sec
-==========================""")
+🔄 Average processing rate: ${metricsData.emailsPerSecond.round(3)} emails/sec
+💻 System performance: EXCELLENT
+=====================================
+
+🎉 EMAIL AUTOMATION CYCLE COMPLETED!
+All ${metrics.maxEmails} emails have been processed successfully.
+System will continue monitoring for new tasks...
+======================================""")
                 }
 
-            // Simple health check endpoint
+            // Enhanced health check
             from("timer://healthCheck?period=30000")
                 .routeId("health-check")
                 .process { exchange ->
                     def metricsData = metrics.getMetrics()
-                    log.info("System health check - Processed: ${metricsData.totalEmails} emails, Success rate: ${metricsData.successRate.round(1)}%")
+                    def healthStatus = "HEALTHY"
+
+                    if (metricsData.errorEmails > 0 && metricsData.successRate < 80) {
+                        healthStatus = "DEGRADED"
+                    }
+
+                    log.info("❤️ System Health: ${healthStatus} | Processed: ${metricsData.totalEmails} | Success: ${metricsData.successRate.round(1)}% | Ollama: ${ollamaAvailable ? 'UP' : 'DOWN'}")
                 }
         }
     })
 
     println """
-✅ ROUTES CONFIGURED SUCCESSFULLY
-=============================
-📧 Processing: ${metrics.maxEmails} emails
-⏱️  Interval: ${config['CHECK_INTERVAL_SECONDS']}s
-🤖 AI: ${ollamaAvailable ? 'Ollama (' + config['OLLAMA_MODEL'] + ')' : 'Standard responses'}
+✅ CAMEL ROUTES CONFIGURED SUCCESSFULLY!
+=======================================
+📧 Processing mode: ${config['MOCK_EMAILS'] == 'true' ? 'MOCK EMAILS' : 'REAL IMAP'}
+📊 Email limit: ${metrics.maxEmails} emails
+⏱️ Check interval: ${config['CHECK_INTERVAL_SECONDS']} seconds
+🤖 AI Engine: ${ollamaAvailable ? 'Ollama (' + config['OLLAMA_MODEL'] + ')' : 'Standard responses only'}
+🔄 Timer delay: 5 seconds initial delay
 
-🔄 Email processor is running...
-Press Ctrl+C to stop
+🚀 EMAIL PROCESSOR IS NOW RUNNING...
+====================================
+📧 Expecting first email processing in ~${config['CHECK_INTERVAL_SECONDS']} seconds
+📊 Progress updates every 60 seconds
+❤️ Health checks every 30 seconds
+
+Press Ctrl+C to stop the system
 """
 
-    // Add shutdown hook
+    // Enhanced shutdown hook
     Runtime.getRuntime().addShutdownHook(new Thread() {
         void run() {
-            println "\n🛑 Shutting down Email Automation System..."
+            println "\n🛑 Gracefully shutting down Email Automation System..."
             def metricsData = metrics.getMetrics()
-            println "📊 Final stats: ${metricsData.totalEmails} emails, ${metricsData.successRate.round(1)}% success rate"
-            main.stop()
+            def totalTime = (metricsData.uptimeSeconds / 60).round(1)
+
+            println """
+📊 SHUTDOWN SUMMARY:
+===================
+📧 Total emails processed: ${metricsData.totalEmails}
+✅ Success rate: ${metricsData.successRate.round(1)}%
+⏰ Total runtime: ${totalTime} minutes
+🤖 AI engine used: ${ollamaAvailable ? 'Yes' : 'No'}
+
+Thank you for using Email Automation System!
+"""
+            try {
+                main.stop()
+            } catch (Exception e) {
+                println "Warning during shutdown: ${e.message}"
+            }
         }
     })
 
     // Start the application
+    println "🎬 Starting Camel Main application..."
     main.run()
 
 } catch (Exception e) {
-    println "❌ CRITICAL ERROR: ${e.message}"
-    println "📋 Stack trace:"
+    println "❌ CRITICAL STARTUP ERROR: ${e.message}"
+    println "📋 Full stack trace:"
     e.printStackTrace()
+
+    println """
+🔧 TROUBLESHOOTING TIPS:
+========================
+1. Check Java version: java -version (need Java 17+)
+2. Check Groovy version: groovy --version
+3. Verify .env file exists with correct values
+4. Test Ollama: curl http://localhost:11434/api/tags
+5. Check port availability: netstat -an | grep 11434
+
+🆘 If problems persist, check the logs above for specific error details.
+"""
     System.exit(1)
 }

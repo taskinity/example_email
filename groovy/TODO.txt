@@ -1,0 +1,7 @@
+jako nowy projekt
+
+poprawić instalatora
+stworzyćp oszeronzy makefile
+
+zmniejszyć skrypty, podzielić na rozne pliki w folderach, stworzyc np instalacje tylko groovy, tylko java, tylko scala, apache camel
+podzielić rozne narzedzia na pojedyncze fodlery i pliki wewnatrz bash , groovy i readme.md, aby bylo łatwiej zrozumieć do czego sluzy dany folder i plik
