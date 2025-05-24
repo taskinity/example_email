@@ -6,7 +6,7 @@ services:
     container_name: taskinity-email-processor
     volumes:
       - ../../..:/app
-    working_dir: /app/email_processing
+    working_dir: /app/example_email
     environment:
       - IMAP_SERVER=mailserver
       - IMAP_PORT=143
@@ -21,6 +21,8 @@ services:
       - PYTHONPATH=/app
     command: >
       bash -c "pip install -r requirements.txt &&
+               pip install -e /app &&
+               python -c 'import sys; print(sys.path)' &&
                python flow.py"
     depends_on:
       - mailserver
