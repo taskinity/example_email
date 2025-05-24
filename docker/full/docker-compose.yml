@@ -21,8 +21,9 @@ services:
       - PYTHONPATH=/app
     command: >
       bash -c "pip install -r requirements.txt &&
-               pip install -e /app &&
-               python -c 'import sys; print(sys.path)' &&
+               pip install -e /app/python &&
+               export PYTHONPATH=/app/python:$PYTHONPATH &&
+               python -c 'import sys; print(\"Python path:\", sys.path)' &&
                python flow.py"
     depends_on:
       - mailserver
