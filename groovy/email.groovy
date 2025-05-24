@@ -90,7 +90,7 @@ def OLLAMA_MODEL = config['OLLAMA_MODEL'] ?: 'qwen2.5:1.5b'
 def OLLAMA_URL = "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/generate"
 
 println """
-🚀 CAMEL + OLLAMA EMAIL AUTOMATION (FIXED)
+🚀 CAMEL + OLLAMA EMAIL AUTOMATION
 ==========================================
 📧 SMTP: ${config['SMTP_SERVER']}:${config['SMTP_PORT']}
 📨 IMAP: ${config['IMAP_SERVER']}:${config['IMAP_PORT']}
@@ -106,38 +106,54 @@ Naciśnij Ctrl+C aby zatrzymać...
 """
 
 // Test Ollama connection
-def testOllama() {
+def testOllama(Map config) {
     try {
+        def host = config['OLLAMA_HOST'] ?: 'localhost'
+        def port = config['OLLAMA_PORT'] ?: '11434'
+        def model = config['OLLAMA_MODEL'] ?: 'qwen2.5:1.5b'
+        
         // First test basic connectivity
-        def healthUrl = "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/health"
+        // Note: Changed from /api/health to /api/version for newer Ollama versions
+        def healthUrl = "http://${host}:${port}/api/version"
         def healthConn = new URL(healthUrl).openConnection() as HttpURLConnection
         healthConn.requestMethod = 'GET'
+        healthConn.connectTimeout = 5000
+        healthConn.readTimeout = 5000
         
         if (healthConn.responseCode != 200) {
             throw new Exception("Ollama health check failed: ${healthConn.responseCode}")
         }
         
-        // Then test if model is available
-        def modelUrl = "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/tags"
-        def modelConn = new URL(modelUrl).openConnection() as HttpURLConnection
-        modelConn.requestMethod = 'GET'
-        
-        def response = new groovy.json.JsonSlurper().parseText(modelConn.content.text)
-        def models = response.models?.collect { it.name } ?: []
-        
-        if (!models.any { it ==~ /.*${OLLAMA_MODEL}.*/ }) {
-            println "⚠️  Model '${OLLAMA_MODEL}' not found. Available models: ${models.join(', ')}"
-            println "    You may need to run: ollama pull ${OLLAMA_MODEL}"
+        // Check if model is available using the local Ollama CLI
+        try {
+            def modelList = "ollama list".execute().text
+            if (!modelList.contains(model)) {
+                println "⚠️  Model '${model}' not found in local models."
+                println "    Available models: ${modelList.split('\n').findAll { it.trim() }.join(', ')}"
+                println "    Attempting to pull the model..."
+                
+                // Try to pull the model
+                def pullProcess = "ollama pull ${model}".execute()
+                pullProcess.waitFor()
+                
+                if (pullProcess.exitValue() != 0) {
+                    println "❌ Failed to pull model '${model}'. Error: ${pullProcess.err.text}"
+                    return false
+                }
+                println "✅ Successfully pulled model '${model}'"
+            }
+        } catch (Exception e) {
+            println "⚠️  Error checking model: ${e.message}"
             return false
         }
         
-        println "✅ Ollama is running and model '${OLLAMA_MODEL}' is available"
+        println "✅ Ollama is running and model '${model}' is available"
         return true
         
     } catch (Exception e) {
         println "❌ Ollama connection failed: ${e.message}"
         println "   Make sure Ollama is running: ollama serve"
-        println "   Check if the model is downloaded: ollama pull ${OLLAMA_MODEL}"
+        println "   Check if the model is downloaded: ollama pull ${config['OLLAMA_MODEL'] ?: 'qwen2.5:1.5b'}"
         return false
     }
 }
@@ -175,7 +191,7 @@ Zespół obsługi klienta"""
 }
 
 // Test Ollama before starting
-if (!testOllama()) {
+if (!testOllama(config)) {
     println "\n⚠️ Ollama is not available. The system will continue but AI features will be disabled."
     println "   You can still use the system with mock responses."
     config['MOCK_EMAILS'] = 'true'
@@ -203,9 +219,11 @@ class EmailRouteBuilder extends RouteBuilder {
 
         // MOCK EMAILS lub RZECZYWISTE
         if (config['MOCK_EMAILS'] == 'true') {
-            from("timer://mockTimer?period=${config['CHECK_INTERVAL_SECONDS']}000&delay=5000")
+            // Clean up the interval value by removing any comments or extra spaces
+            def intervalMs = (config['CHECK_INTERVAL_SECONDS'] ?: '60').trim().split(' ')[0].toInteger() * 1000
+            from("timer://mockTimer?period=${intervalMs}&delay=5000")
                 .routeId("mock-email-generator")
-                .log("🧪 Generowanie mock email...")
+                .log("🧪 Generowanie mock email co ${intervalMs}ms...")
                 .process { ex ->
                     def mockEmails = [
                         [from: "jan.kowalski@example.com", subject: "Pytanie o produkt",
@@ -228,12 +246,13 @@ class EmailRouteBuilder extends RouteBuilder {
                 "imap://${config['IMAP_SERVER']}:${config['IMAP_PORT']}"
 
             from("${imapUrl}?" +
-                 "username=${config['IMAP_USERNAME']}&" +
-                 "password=${config['IMAP_PASSWORD']}&" +
-                 "delete=false&unseen=true&" +
-                 "folderName=${config['IMAP_FOLDER']}&" +
-                 "consumer.delay=${config['CHECK_INTERVAL_SECONDS']}000&" +
-                 "maxMessagesPerPoll=${config['EMAIL_LIMIT']}")
+                 "username=${config['IMAP_USERNAME']}" +
+                 "&password=${config['IMAP_PASSWORD']}" +
+                 "&delete=false" +
+                 "&unseen=true" +
+                 "&folderName=${config['IMAP_FOLDER']}" +
+                 "&delay=${config['CHECK_INTERVAL_SECONDS']}000" +
+                 "&maxMessagesPerPoll=${config['EMAIL_LIMIT']}")
                 .routeId("real-email-fetcher")
                 .log("📧 Email od: \${header.from}")
                 .to("direct:processWithOllama")
@@ -370,13 +389,30 @@ Odpowiedź:"""
     }
 }
 
-// Dodanie RouteBuilder do Main - poprawna składnia
-main.configure().routeBuilder(new EmailRouteBuilder(config))
+// Add route builder to main configuration
+main.configure().addRoutesBuilder(new EmailRouteBuilder(config))
 
-// Uruchomienie
+// Add shutdown hook
+Runtime.getRuntime().addShutdownHook(new Thread() {
+    void run() {
+        println "\n🛑 Shutting down..."
+        main.stop()
+    }
+})
+
+// Start Camel
 try {
-    main.run()
+    println "🚀 Starting Camel routes..."
+    main.start()
+    
+    // Keep the main thread alive
+    while (true) {
+        Thread.sleep(Long.MAX_VALUE)
+    }
 } catch (Exception e) {
-    println "❌ Błąd uruchomienia: ${e.message}"
+    println "❌ Error starting Camel: ${e.message}"
     e.printStackTrace()
+    System.exit(1)
+} finally {
+    main.stop()
 }

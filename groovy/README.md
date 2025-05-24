@@ -96,14 +96,14 @@ System automatyzacji emaili wykorzystujący **Apache Camel** w **Groovy** oraz l
 ### Automatyczna instalacja
 ```bash
 # Pobierz skrypty
-curl -O https://raw.githubusercontent.com/your-repo/install-all.sh
-chmod +x install-all.sh
+curl -O https://raw.githubusercontent.com/taskinity/install.sh
+chmod +x install.sh
 
 # Instalacja jedną komendą
-./install-all.sh
+./install.sh
 
 # Lub step-by-step
-./start-ollama-2b.sh install
+./start-ollama.sh install
 ```
 
 ### Manualna instalacja
