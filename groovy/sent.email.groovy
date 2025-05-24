@@ -5,12 +5,11 @@
 
 import org.apache.camel.main.Main
 import org.apache.camel.builder.RouteBuilder
-import groovy.json.JsonBuilder
-import java.text.SimpleDateFormat
+import org.apache.camel.CamelContext
 import java.util.concurrent.ThreadLocalRandom
 
-// Ładowanie konfiguracji z .env
-def loadEnvConfig() {
+// === KONFIGURACJA ===
+def loadConfig() {
     def config = [:]
     def envFile = new File('.env')
 
@@ -25,318 +24,315 @@ def loadEnvConfig() {
         }
     }
 
-    // Domyślne wartości dla symulatora
-    config.putIfAbsent('SMTP_SERVER', 'localhost')
-    config.putIfAbsent('SMTP_PORT', '1025')
-    config.putIfAbsent('SMTP_USERNAME', 'simulator@test.com')
-    config.putIfAbsent('SMTP_PASSWORD', 'password')
-    config.putIfAbsent('TARGET_EMAIL', 'user@taskinity.org')
-    config.putIfAbsent('SIMULATION_INTERVAL', '30')
-    config.putIfAbsent('SIMULATION_COUNT', '5')
-    config.putIfAbsent('REALISTIC_MODE', 'true')
-
-    return config
+    return [
+        'TARGET_EMAIL': config['TEST_EMAIL'] ?: 'info@softreck.com',
+        'SMTP_SERVER': config['SMTP_SERVER'] ?: 'sapletta.com',
+        'SMTP_PORT': config['SMTP_PORT'] ?: '465',
+        'SMTP_USERNAME': config['SMTP_USERNAME'] ?: 'tomasz@sapletta.de',
+        'SMTP_PASSWORD': config['SMTP_PASSWORD'] ?: 'password',
+        'FROM_EMAIL': config['FROM_EMAIL'] ?: 'tomasz@sapletta.de',
+        'SIMULATION_COUNT': '5',
+        'SIMULATION_INTERVAL': '15'
+    ]
 }
 
-def config = loadEnvConfig()
+def config = loadConfig()
 
 println """
-📧 EMAIL EVENT SIMULATOR
-========================
+📧 ULTIMATE EMAIL SIMULATOR
+============================
 🎯 Target: ${config['TARGET_EMAIL']}
 📤 SMTP: ${config['SMTP_SERVER']}:${config['SMTP_PORT']}
+👤 From: ${config['FROM_EMAIL']}
 ⏱️ Interval: ${config['SIMULATION_INTERVAL']}s
 🔢 Count: ${config['SIMULATION_COUNT']} emails
-🎭 Realistic: ${config['REALISTIC_MODE']}
 
-Generowanie różnych typów emaili dla systemu automatyzacji...
-Naciśnij Ctrl+C aby zatrzymać
+UWAGA: To jest SYMULATOR - generuje emaile!
+Naciśnij Ctrl+C aby zatrzymać...
 """
 
-// Szablony różnych typów emaili
-class EmailTemplates {
-    static def customerInquiries = [
-        [
-            category: "PRODUCT_INQUIRY",
-            senders: ["jan.kowalski@gmail.com", "anna.nowak@onet.pl", "piotr.wisniewski@wp.pl"],
-            subjects: [
-                "Pytanie o produkt XYZ",
-                "Dostępność towaru",
-                "Zapytanie o cenę",
-                "Informacje o produkcie",
-                "Czy jest w magazynie?"
-            ],
-            bodies: [
-                "Dzień dobry,\n\nCzy produkt XYZ-123 jest dostępny? Proszę o informację o cenie i terminie dostawy.\n\nPozdrawienia,\nJan",
-                "Witam,\n\nInteresuje mnie Państwa oferta. Czy mogliby Państwo przesłać szczegółowe informacje o produkcie ABC?\n\nDziękuję",
-                "Dzień dobry,\n\nSzukam produktu do zastosowań przemysłowych. Czy mają Państwo coś odpowiedniego?\n\nZ poważaniem",
-                "Proszę o wycenę 50 sztuk produktu Model-456. Potrzebne na przyszły tydzień.\n\nPozdrawienia"
-            ]
-        ],
-        [
-            category: "COMPLAINT",
-            senders: ["reklamacja@firma.pl", "niezadowolony.klient@gmail.com", "serwis@company.com"],
-            subjects: [
-                "REKLAMACJA - wadliwy produkt",
-                "Problem z zamówieniem #12345",
-                "Zwrot towaru",
-                "Niesprawny sprzęt",
-                "Reklamacja gwarancyjna"
-            ],
-            bodies: [
-                "Dzień dobry,\n\nOtrzymałem wadliwy produkt w zamówieniu nr 12345. Urządzenie nie włącza się mimo prawidłowego podłączenia.\n\nProszę o kontakt w sprawie zwrotu.\n\nKlient niezadowolony",
-                "Witam,\n\nProdukt zamówiony 15.12.2024 jest uszkodzony. Opakowanie było zniszczone podczas transportu.\n\nOczekuję wymiany lub zwrotu pieniędzy.\n\nPozdrawienia",
-                "PILNE!\n\nSprzęt nie działa zgodnie ze specyfikacją. To już druga sztuka z tym samym problemem.\n\nProszę o natychmiastowy kontakt!",
-                "Reklamacja gwarancyjna produktu zakupionego 3 miesiące temu. Usterka po miesiącu użytkowania.\n\nNr seryjny: ABC123456"
-            ]
-        ],
-        [
-            category: "SUPPORT_REQUEST",
-            senders: ["help@client.com", "admin@company.org", "it@business.pl"],
-            subjects: [
-                "Pomoc techniczna - instalacja",
-                "Jak skonfigurować system?",
-                "Problem z oprogramowaniem",
-                "Instrukcja obsługi",
-                "Wsparcie IT"
-            ],
-            bodies: [
-                "Dzień dobry,\n\nMam problem z instalacją oprogramowania. System wyświetla błąd podczas uruchamiania.\n\nCzy mogliby Państwo pomóc?\n\nIT Admin",
-                "Witam,\n\nPotrzebuję instrukcji konfiguracji systemu dla 20 użytkowników. Jakie są wymagania?\n\nZ góry dziękuję",
-                "PILNE - Problem z licencją\n\nOprogramowanie przestało działać po aktualizacji. Błąd: License_Invalid\n\nProszę o szybką pomoc!",
-                "Czy jest możliwość zdalnej konfiguracji systemu? Mamy problemy z dostępem do panelu administracyjnego.\n\nPozdrawienia"
-            ]
-        ],
-        [
-            category: "ORDER_STATUS",
-            senders: ["zamowienia@sklep.pl", "klient@email.com", "biuro@firma.com"],
-            subjects: [
-                "Status zamówienia #ORDER-789",
-                "Kiedy wysyłka?",
-                "Sprawdzenie dostawy",
-                "Śledzenie przesyłki",
-                "Termin realizacji zamówienia"
-            ],
-            bodies: [
-                "Dzień dobry,\n\nZłożyłem zamówienie tydzień temu (nr ORDER-789). Czy mogę sprawdzić status realizacji?\n\nPozdrawienia",
-                "Witam,\n\nCzy zamówienie zostało już wysłane? Potrzebuję numer śledzenia przesyłki.\n\nDziękuję",
-                "Zamówienie z 10.12.2024 nadal w trakcie realizacji. Kiedy mogę spodziewać się wysyłki?\n\nPilne!",
-                "Proszę o aktualizację statusu zamówienia. Klient pyta o termin dostawy.\n\nBiuro obsługi"
-            ]
-        ],
-        [
-            category: "PARTNERSHIP",
-            senders: ["partner@business.com", "cooperation@company.pl", "b2b@enterprise.org"],
-            subjects: [
-                "Propozycja współpracy B2B",
-                "Partnerstwo strategiczne",
-                "Oferta dla firm",
-                "Współpraca handlowa",
-                "Dystrybucja produktów"
-            ],
-            bodies: [
-                "Szanowni Państwo,\n\nJestem zainteresowany nawiązaniem współpracy B2B. Nasza firma zajmuje się dystrybucją w regionie.\n\nCzy moglibyśmy umówić się na spotkanie?\n\nPartner Biznesowy",
-                "Dzień dobry,\n\nChcielibyśmy zostać autoryzowanym dystrybutorem Państwa produktów. Działamy na rynku od 15 lat.\n\nProszę o kontakt",
-                "Propozycja partnerstwa strategicznego w obszarze IT. Mamy doświadczenie w integracji systemów.\n\nCzy są Państwo zainteresowani?\n\nCEO TechCompany",
-                "Oferujemy współpracę w zakresie obsługi klientów zagranicznych. Mówimy w 8 językach.\n\nSprawdźcie naszą ofertę!"
-            ]
-        ]
-    ]
+// === SZABLONY EMAILI ===
+def emailTemplates = [
+    [
+        from: "jan.kowalski@gmail.com",
+        subject: "Pytanie o hosting i domeny",
+        body: """Dzień dobry,
 
-    static def getRandomEmail() {
-        def category = customerInquiries[ThreadLocalRandom.current().nextInt(customerInquiries.size())]
-        def sender = category.senders[ThreadLocalRandom.current().nextInt(category.senders.size())]
-        def subject = category.subjects[ThreadLocalRandom.current().nextInt(category.subjects.size())]
-        def body = category.bodies[ThreadLocalRandom.current().nextInt(category.bodies.size())]
+Szukam providera hostingu dla mojej firmy. Interesują mnie:
+- Hosting VPS z SSD
+- Rejestracja domeny .com i .pl
+- SSL certificate
+- Email hosting dla 10 osób
 
-        return [
-            category: category.category,
-            from: sender,
-            subject: subject,
-            body: body,
-            timestamp: new Date()
-        ]
-    }
+Czy mogliby Państwo przesłać ofertę?
 
-    static def getUrgentEmail() {
-        return [
-            category: "URGENT",
-            from: "ceo@importantclient.com",
-            subject: "PILNE - Problem z systemem produkcyjnym!",
-            body: """PILNE!
+Pozdrawienia,
+Jan Kowalski
+Dyrektor IT
+ABC Company"""
+    ],
+    [
+        from: "support@firma-klient.pl",
+        subject: "Problem z serwerem - błąd 503",
+        body: """Witam,
 
-System produkcyjny przestał działać o 14:30.
-Linia produkcyjna stoi, straty 50,000 PLN/godzinę.
+Od wczoraj wieczorem nasz serwer zwraca błąd 503:
+- Domena: www.firma-klient.pl
+- Hosting: VPS Basic
+- Błąd: Service Temporarily Unavailable
 
-Błęd: SYSTEM_CRITICAL_FAILURE_001
+Strona jest niedostępna dla klientów. Prosimy o pilną interwencję!
 
-Potrzebujemy natychmiastowej pomocy!
+Z poważaniem,
+Dział IT
+Firma Klient Sp. z o.o."""
+    ],
+    [
+        from: "ceo@wazna-firma.com",
+        subject: "PILNE - Migracja serwera przed weekendem",
+        body: """PILNE!
+
+Potrzebujemy pilnej migracji naszego serwera produkcyjnego:
+- Aktualne IP: 185.xxx.xxx.xxx
+- Docelowy serwer: VPS Premium
+- Deadline: Piątek 17:00
+- Aplikacja: e-commerce (24/7 uptime wymagany)
+
+Czy jest możliwość wykonania migracji dzisiaj?
 
 CEO
-Ważny Klient Sp. z o.o.
-tel: +48 123 456 789""",
-            timestamp: new Date()
-        ]
-    }
+Ważna Firma Sp. z o.o.
+tel: +48 123 456 789"""
+    ],
+    [
+        from: "admin@startup.tech",
+        subject: "Konfiguracja SSL dla nowej aplikacji",
+        body: """Dzień dobry,
 
-    static def getSpamEmail() {
-        def spamSubjects = [
-            "🎉 PROMOCJA! Kup teraz -90%!",
-            "💰 Zarobisz 10,000 PLN dziennie!",
-            "🎁 DARMOWA nagroda czeka!",
-            "⚡ Ostatnie 24 godziny wyprzedaży!",
-            "🏆 Wygrałeś 1,000,000 EUR!"
-        ]
+Uruchamiamy nową aplikację i potrzebujemy konfiguracji SSL:
+- Domena: api.startup.tech
+- Subdomena: www.startup.tech
+- Typ: Wildcard SSL (*.startup.tech)
+- Framework: Node.js + MongoDB
 
-        def spamBodies = [
-            "Kliknij tutaj aby odebrać nagrodę! www.suspicious-link.com\n\nTo nie jest spam!",
-            "Zarabiaj w domu! Bez doświadczenia! Tylko dziś!\n\nWysyłka gratis przy zamówieniu powyżej 0 PLN!",
-            "UWAGA! Twoje konto zostanie zamknięte! Kliknij: fake-bank.com\n\nTo ostatnie ostrzeżenie!",
-            "Powiększ swój... portfel! Inwestuj w kryptowaluty!\n\nGwarancja 1000% zysku!"
-        ]
+Czy mogą Państwo pomóc z konfiguracją?
 
-        return [
-            category: "SPAM",
-            from: "noreply@spam${ThreadLocalRandom.current().nextInt(1000)}.com",
-            subject: spamSubjects[ThreadLocalRandom.current().nextInt(spamSubjects.size())],
-            body: spamBodies[ThreadLocalRandom.current().nextInt(spamBodies.size())],
-            timestamp: new Date()
-        ]
-    }
-}
+Best regards,
+DevOps Team
+StartupTech"""
+    ],
+    [
+        from: "sklep@ecommerce.pl",
+        subject: "Zwiększenie zasobów - Black Friday",
+        body: """Witam,
 
-// Symulator wydarzeń
-class EventSimulator extends RouteBuilder {
-    def config
-    def emailsSent = 0
-    def maxEmails
+Zbliża się Black Friday i spodziewamy się 10x więcej ruchu:
+- Aktualne zasoby: VPS Standard (4 CPU, 8GB RAM)
+- Potrzebne: VPS Premium (8 CPU, 16GB RAM)
+- Termin: do 25 listopada
+- Load balancer: wymagany
 
-    EventSimulator(config) {
-        this.config = config
-        this.maxEmails = Integer.parseInt(config['SIMULATION_COUNT'])
-    }
+Proszę o wycenę upgrade'u infrastruktury.
 
-    void configure() {
+Pozdrawienia,
+E-commerce Team"""
+    ]
+]
 
-        // Obsługa błędów
-        onException(Exception.class)
-            .log("❌ SYMULATOR ERROR: \${exception.message}")
-            .handled(true)
+// === GLOBALNY LICZNIK ===
+def emailCount = 0
+def maxEmails = Integer.parseInt(config['SIMULATION_COUNT'])
 
-        // Timer główny - normalne emaile
-        from("timer://normalEmails?period=${config['SIMULATION_INTERVAL']}000&delay=2000")
-            .routeId("normal-email-generator")
-            .filter { exchange -> emailsSent < maxEmails }
-            .process { exchange ->
-                def emailData = EmailTemplates.getRandomEmail()
-
-                exchange.in.setHeader("emailCategory", emailData.category)
-                exchange.in.setHeader("To", config['TARGET_EMAIL'])
-                exchange.in.setHeader("From", emailData.from)
-                exchange.in.setHeader("Subject", emailData.subject)
-                exchange.in.body = emailData.body
-
-                emailsSent++
-                log.info("📧 Generating email ${emailsSent}/${maxEmails}: ${emailData.category}")
-            }
-            .to("direct:sendEmail")
-
-        // Timer pilne emaile (rzadziej)
-        from("timer://urgentEmails?period=120000&delay=30000")  // Co 2 minuty
-            .routeId("urgent-email-generator")
-            .filter { exchange -> emailsSent < maxEmails && ThreadLocalRandom.current().nextBoolean() }
-            .process { exchange ->
-                def emailData = EmailTemplates.getUrgentEmail()
-
-                exchange.in.setHeader("emailCategory", emailData.category)
-                exchange.in.setHeader("To", config['TARGET_EMAIL'])
-                exchange.in.setHeader("From", emailData.from)
-                exchange.in.setHeader("Subject", emailData.subject)
-                exchange.in.body = emailData.body
-
-                emailsSent++
-                log.info("🚨 Generating URGENT email ${emailsSent}/${maxEmails}")
-            }
-            .to("direct:sendEmail")
-
-        // Timer spam (jeśli realistic mode)
-        if (config['REALISTIC_MODE'] == 'true') {
-            from("timer://spamEmails?period=90000&delay=60000")  // Co 1.5 minuty
-                .routeId("spam-email-generator")
-                .filter { exchange -> ThreadLocalRandom.current().nextInt(100) < 30 }  // 30% szans
-                .process { exchange ->
-                    def emailData = EmailTemplates.getSpamEmail()
-
-                    exchange.in.setHeader("emailCategory", emailData.category)
-                    exchange.in.setHeader("To", config['TARGET_EMAIL'])
-                    exchange.in.setHeader("From", emailData.from)
-                    exchange.in.setHeader("Subject", emailData.subject)
-                    exchange.in.body = emailData.body
-
-                    log.info("💀 Generating SPAM email (realistic mode)")
-                }
-                .to("direct:sendEmail")
-        }
-
-        // Wysyłanie emaili
-        from("direct:sendEmail")
-            .routeId("email-sender")
-            .log("📤 Sending: \${header.Subject} from \${header.From}")
-            .choice()
-                .when(simple("${config['SMTP_SERVER']} == 'mock'"))
-                    .log("📧 MOCK EMAIL SENT:")
-                    .log("   To: \${header.To}")
-                    .log("   From: \${header.From}")
-                    .log("   Subject: \${header.Subject}")
-                    .log("   Category: \${header.emailCategory}")
-                    .log("   Body: \${body}")
-                .otherwise()
-                    .process { exchange ->
-                        // Budowanie URL SMTP
-                        def smtpUrl = ""
-                        if (config['SMTP_PORT'] == '465') {
-                            smtpUrl = "smtps://${config['SMTP_SERVER']}:${config['SMTP_PORT']}"
-                        } else if (config['SMTP_PORT'] == '587') {
-                            smtpUrl = "smtp://${config['SMTP_SERVER']}:${config['SMTP_PORT']}?mail.smtp.starttls.enable=true"
-                        } else {
-                            smtpUrl = "smtp://${config['SMTP_SERVER']}:${config['SMTP_PORT']}"
-                        }
-                        exchange.in.setHeader("smtpUrl", smtpUrl)
-                    }
-                    .doTry()
-                        .recipientList(simple("\${header.smtpUrl}?" +
-                            "username=${config['SMTP_USERNAME']}&" +
-                            "password=${config['SMTP_PASSWORD']}"))
-                        .log("✅ Email sent successfully!")
-                    .doCatch(Exception.class)
-                        .log("❌ Failed to send email: \${exception.message}")
-                        .log("📧 FALLBACK - would send: \${header.Subject}")
-                    .end()
-            .end()
-
-        // Status monitor
-        from("timer://statusMonitor?period=60000&delay=10000")  // Co minutę
-            .routeId("status-monitor")
-            .process { exchange ->
-                def progress = emailsSent >= maxEmails ? 100 : (emailsSent * 100 / maxEmails)
-                log.info("📊 Progress: ${emailsSent}/${maxEmails} emails sent (${progress}%)")
-
-                if (emailsSent >= maxEmails) {
-                    log.info("🎯 Simulation completed! Sent ${emailsSent} emails")
-                    // Opcjonalnie zatrzymaj context
-                    // exchange.context.stop()
-                }
-            }
-    }
-}
-
-// Uruchomienie symulatora
-Main main = new Main()
-main.configure().routeBuilder(new EventSimulator(config))
-
+// === MAIN CAMEL APPLICATION ===
 try {
+    println "🚀 Initializing Camel Main..."
+
+    // Utwórz Main context
+    Main main = new Main()
+
+    // KLUCZOWA ZMIANA: Użyj configure() callback zamiast addRouteBuilder()
+    main.configure().addRoutesBuilder(new RouteBuilder() {
+        @Override
+        void configure() throws Exception {
+
+            // Error handling
+            onException(Exception.class)
+                .log("❌ ERROR: \${exception.message}")
+                .handled(true)
+
+            // Main email generator timer
+            from("timer://emailGen?period=${config['SIMULATION_INTERVAL']}000&delay=3000")
+                .routeId("email-generator")
+                .log("🔄 Timer tick...")
+                .process { exchange ->
+                    // Sprawdź limit
+                    if (emailCount >= maxEmails) {
+                        log.info("🎯 Simulation completed! Generated ${emailCount} emails")
+                        exchange.setProperty("completed", true)
+                        return
+                    }
+
+                    // Wybierz losowy szablon
+                    def template = emailTemplates[ThreadLocalRandom.current().nextInt(emailTemplates.size())]
+
+                    // Ustaw dane emaila
+                    exchange.in.setHeader("To", config['TARGET_EMAIL'])
+                    exchange.in.setHeader("From", template.from)
+                    exchange.in.setHeader("Subject", template.subject)
+                    exchange.in.body = template.body
+
+                    emailCount++
+                    log.info("📧 Generated email ${emailCount}/${maxEmails}: ${template.subject}")
+                }
+                .choice()
+                    .when(exchangeProperty("completed").isEqualTo(true))
+                        .log("✅ Simulation finished - stopping")
+                        .process { exchange ->
+                            // Opcjonalnie zatrzymaj context po zakończeniu
+                            exchange.context.createProducerTemplate().asyncSendBody("timer://shutdown?repeatCount=1&delay=5000", "stop")
+                        }
+                    .otherwise()
+                        .to("direct:sendEmail")
+                .end()
+
+            // Email sending
+            from("direct:sendEmail")
+                .routeId("email-sender")
+                .log("📤 Sending: \${header.Subject}")
+                .log("   From: \${header.From} → To: \${header.To}")
+                .choice()
+                    .when(simple("${config['SMTP_SERVER']} == 'mock'"))
+                        .to("direct:mockSend")
+                    .otherwise()
+                        .to("direct:realSend")
+                .end()
+
+            // Mock sending
+            from("direct:mockSend")
+                .routeId("mock-sender")
+                .log("📧 === MOCK EMAIL ===")
+                .log("📬 Subject: \${header.Subject}")
+                .log("👤 From: \${header.From}")
+                .log("📄 Preview: \${bodyAs(String).substring(0, java.lang.Math.min(150, bodyAs(String).length()))}...")
+                .log("✅ Mock email sent!")
+
+            // Real SMTP sending
+            from("direct:realSend")
+                .routeId("smtp-sender")
+                .doTry()
+                    .process { exchange ->
+                        // Build SMTP URL
+                        def port = config['SMTP_PORT']
+                        def server = config['SMTP_SERVER']
+                        def smtpUrl
+
+                        if (port == '465') {
+                            smtpUrl = "smtps://${server}:${port}?mail.smtps.auth=true&mail.smtps.ssl.enable=true"
+                        } else if (port == '587') {
+                            smtpUrl = "smtp://${server}:${port}?mail.smtp.starttls.enable=true&mail.smtp.auth=true"
+                        } else {
+                            smtpUrl = "smtp://${server}:${port}?mail.smtp.auth=true"
+                        }
+
+                        exchange.setProperty("smtpUrl", smtpUrl)
+                        log.debug("📡 SMTP URL: ${smtpUrl}")
+                    }
+                    .setHeader("From", simple("${config['FROM_EMAIL']}"))
+                    .recipientList(simple("\${exchangeProperty.smtpUrl}" +
+                        "?username=${config['SMTP_USERNAME']}" +
+                        "&password=${config['SMTP_PASSWORD']}"))
+                    .log("✅ Real email sent via SMTP!")
+                .doCatch(Exception.class)
+                    .log("❌ SMTP failed: \${exception.message}")
+                    .log("🔄 Falling back to mock mode...")
+                    .to("direct:mockSend")
+                .end()
+
+            // Shutdown timer (opcjonalne)
+            from("timer://shutdown?repeatCount=1")
+                .routeId("shutdown-timer")
+                .log("🛑 Shutting down simulator...")
+                .process { exchange ->
+                    exchange.context.stop()
+                }
+        }
+    })
+
+    println "✅ Routes configured successfully!"
+    println "🔄 Starting email simulation..."
+
+    // Uruchom aplikację
     main.run()
+
 } catch (Exception e) {
-    println "❌ Simulator error: ${e.message}"
+    println "❌ CRITICAL ERROR: ${e.message}"
+    println "📋 Stack trace:"
     e.printStackTrace()
+
+    println """
+
+🔧 ALTERNATIVE - Simple Generator:
+==================================
+Jeśli Camel nadal nie działa, użyj prostego generatora:
+"""
+
+    // FALLBACK - prosty generator bez Camel
+    runSimpleGenerator(config)
+}
+
+// === PROSTY GENERATOR BEZ CAMEL ===
+def runSimpleGenerator(config) {
+    println """
+📧 FALLBACK: SIMPLE EMAIL GENERATOR
+===================================
+🎯 Target: ${config['TARGET_EMAIL']}
+🔢 Count: ${config['SIMULATION_COUNT']} emails
+"""
+
+    def emails = [
+        [from: "jan.kowalski@gmail.com", subject: "Pytanie o hosting",
+         body: "Interesuje mnie hosting VPS dla mojej firmy."],
+        [from: "support@klient.pl", subject: "Problem z serwerem",
+         body: "Serwer zwraca błąd 503 od wczoraj."],
+        [from: "ceo@firma.com", subject: "PILNE - Migracja serwera",
+         body: "Potrzebujemy pilnej migracji przed weekendem."],
+        [from: "admin@startup.tech", subject: "Konfiguracja SSL",
+         body: "Potrzebujemy SSL dla nowej aplikacji."],
+        [from: "sklep@ecommerce.pl", subject: "Upgrade infrastruktury",
+         body: "Black Friday - potrzebujemy więcej zasobów."]
+    ]
+
+    def count = Integer.parseInt(config['SIMULATION_COUNT'])
+    def interval = Integer.parseInt(config['SIMULATION_INTERVAL']) * 1000
+
+    for (int i = 0; i < count; i++) {
+        def email = emails[i % emails.size()]
+        def timestamp = new Date().format("HH:mm:ss")
+
+        println """
+📧 EMAIL #${i+1}/${count} [${timestamp}]
+════════════════════════════════════════
+From: ${email.from}
+To: ${config['TARGET_EMAIL']}
+Subject: ${email.subject}
+
+${email.body}
+
+✅ Email event generated!
+────────────────────────────────────────
+"""
+
+        if (i < count - 1) {
+            println "⏱️ Waiting ${config['SIMULATION_INTERVAL']} seconds...\n"
+            Thread.sleep(interval)
+        }
+    }
+
+    println """
+🎯 SIMULATION COMPLETED!
+========================
+📊 Generated ${count} email events
+🎯 Target: ${config['TARGET_EMAIL']}
+💡 Your email automation system should now have work to do!
+"""
 }

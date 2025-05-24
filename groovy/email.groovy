@@ -1,418 +1,425 @@
+@GrabResolver(name='apache.snapshots', root='https://repository.apache.org/snapshots/')
 @Grab('org.apache.camel:camel-core:4.4.0')
+@Grab('org.apache.camel:camel-main:4.4.0')
 @Grab('org.apache.camel:camel-mail:4.4.0')
 @Grab('org.apache.camel:camel-http:4.4.0')
 @Grab('org.apache.camel:camel-jackson:4.4.0')
-@Grab('org.apache.camel:camel-main:4.4.0')
 @Grab('org.slf4j:slf4j-simple:2.0.9')
+@Grab('com.sun.mail:jakarta.mail:2.0.1')
+@Grab('org.apache.httpcomponents.client5:httpclient5:5.2.1')
 
 import org.apache.camel.main.Main
 import org.apache.camel.builder.RouteBuilder
 import groovy.json.JsonBuilder
 import groovy.json.JsonSlurper
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
-// Ładowanie konfiguracji z .env
-def loadEnvConfig() {
+// Initialize logger
+Logger log = LoggerFactory.getLogger('EmailProcessor')
+
+// === KONFIGURACJA ===
+def loadConfig() {
     def config = [:]
     def envFile = new File('.env')
 
-    if (!envFile.exists()) {
-        println "❌ Brak pliku .env - tworzę przykładowy"
-        createSampleEnv()
-        return loadDefaultConfig()
-    }
-
-    envFile.eachLine { line ->
-        if (line && !line.startsWith('#') && line.contains('=')) {
-            def parts = line.split('=', 2)
-            if (parts.length == 2) {
-                config[parts[0].trim()] = parts[1].trim()
+    if (envFile.exists()) {
+        envFile.eachLine { line ->
+            if (line && !line.startsWith('#') && line.contains('=')) {
+                def parts = line.split('=', 2)
+                if (parts.length == 2) {
+                    config[parts[0].trim()] = parts[1].trim()
+                }
             }
         }
     }
+
+    // Domyślne wartości
+    config.putIfAbsent('MOCK_EMAILS', 'true')
+    config.putIfAbsent('CHECK_INTERVAL_SECONDS', '15')
+    config.putIfAbsent('EMAIL_LIMIT', '10')
+    config.putIfAbsent('OLLAMA_HOST', 'localhost')
+    config.putIfAbsent('OLLAMA_PORT', '11434')
+    config.putIfAbsent('OLLAMA_MODEL', 'qwen2.5:1.5b')
+    config.putIfAbsent('TEST_EMAIL', 'info@softreck.com')
+    config.putIfAbsent('HAWTIO_PORT', '8080')
+    config.putIfAbsent('JMX_PORT', '1099')
+
     return config
 }
 
-def createSampleEnv() {
-    new File('.env').text = '''# Email Processing Configuration
-SMTP_SERVER=localhost
-SMTP_PORT=1025
-SMTP_USERNAME=test@example.com
-SMTP_PASSWORD=password
-FROM_EMAIL=test@example.com
-REPLY_TO_EMAIL=support@example.com
-
-IMAP_SERVER=localhost
-IMAP_PORT=1025
-IMAP_USERNAME=test@example.com
-IMAP_PASSWORD=password
-IMAP_FOLDER=INBOX
-
-MOCK_EMAILS=true
-EMAIL_LIMIT=3
-CHECK_INTERVAL_SECONDS=60
-TEST_EMAIL=info@example.com
-
-OLLAMA_HOST=localhost
-OLLAMA_PORT=11434
-OLLAMA_MODEL=qwen2.5:1.5b
-'''
-}
-
-def loadDefaultConfig() {
-    return [
-        'SMTP_SERVER': 'localhost',
-        'SMTP_PORT': '1025',
-        'SMTP_USERNAME': 'test@example.com',
-        'SMTP_PASSWORD': 'password',
-        'FROM_EMAIL': 'test@example.com',
-        'REPLY_TO_EMAIL': 'support@example.com',
-        'IMAP_SERVER': 'localhost',
-        'IMAP_PORT': '1025',
-        'IMAP_USERNAME': 'test@example.com',
-        'IMAP_PASSWORD': 'password',
-        'IMAP_FOLDER': 'INBOX',
-        'MOCK_EMAILS': 'true',
-        'EMAIL_LIMIT': '3',
-        'CHECK_INTERVAL_SECONDS': '60',
-        'TEST_EMAIL': 'info@example.com',
-        'OLLAMA_HOST': 'localhost',
-        'OLLAMA_PORT': '11434',
-        'OLLAMA_MODEL': 'qwen2.5:1.5b'
-    ]
-}
-
-def config = loadEnvConfig()
-
-// Konfiguracja Ollama
-def OLLAMA_HOST = config['OLLAMA_HOST'] ?: 'localhost'
-def OLLAMA_PORT = config['OLLAMA_PORT'] ?: '11434'
-def OLLAMA_MODEL = config['OLLAMA_MODEL'] ?: 'qwen2.5:1.5b'
-def OLLAMA_URL = "http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/generate"
+def config = loadConfig()
 
 println """
-🚀 CAMEL + OLLAMA EMAIL AUTOMATION
-==========================================
-📧 SMTP: ${config['SMTP_SERVER']}:${config['SMTP_PORT']}
-📨 IMAP: ${config['IMAP_SERVER']}:${config['IMAP_PORT']}
-👤 User: ${config['SMTP_USERNAME']}
-🤖 Ollama: ${OLLAMA_URL}
-📦 Model: ${OLLAMA_MODEL}
-🔄 Interval: ${config['CHECK_INTERVAL_SECONDS']}s
-📊 Limit: ${config['EMAIL_LIMIT']}
-🧪 Mock: ${config['MOCK_EMAILS']}
+🚀 EMAIL AUTOMATION SYSTEM
+========================
+📧 Email Processing: Mock=${config['MOCK_EMAILS']}, Limit=${config['EMAIL_LIMIT']}
+🤖 Ollama: http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}
+📦 Model: ${config['OLLAMA_MODEL']}
+🔄 Check Interval: ${config['CHECK_INTERVAL_SECONDS']}s
 
-Upewnij się że Ollama działa: curl ${OLLAMA_URL}
-Naciśnij Ctrl+C aby zatrzymać...
+Starting services...
 """
 
-// Test Ollama connection
-def testOllama(Map config) {
+// === METRICS CLASS ===
+class EmailMetrics {
+    int emailCount = 0
+    int successCount = 0
+    int errorCount = 0
+    int maxEmails = 0
+    long startTime = System.currentTimeMillis()
+    
+    def getMetrics() {
+        def uptime = System.currentTimeMillis() - startTime
+        def rate = emailCount > 0 ? (emailCount / (uptime / 1000.0)) : 0
+
+        return [
+            totalEmails: emailCount,
+            successEmails: successCount,
+            errorEmails: errorCount,
+            successRate: emailCount > 0 ? (successCount * 100 / emailCount) : 0,
+            emailsPerSecond: rate,
+            uptimeSeconds: uptime / 1000,
+            remainingEmails: Math.max(0, maxEmails - emailCount)
+        ]
+    }
+    
+    def incrementEmailCount() { emailCount++ }
+    def incrementSuccessCount() { successCount++ }
+    def incrementErrorCount() { errorCount++ }
+}
+
+// Initialize metrics
+def metrics = new EmailMetrics()
+metrics.maxEmails = Integer.parseInt(config['EMAIL_LIMIT'])
+
+// === HELPER FUNCTIONS ===
+def testOllama() {
     try {
-        def host = config['OLLAMA_HOST'] ?: 'localhost'
-        def port = config['OLLAMA_PORT'] ?: '11434'
-        def model = config['OLLAMA_MODEL'] ?: 'qwen2.5:1.5b'
-        
-        // First test basic connectivity
-        // Note: Changed from /api/health to /api/version for newer Ollama versions
-        def healthUrl = "http://${host}:${port}/api/version"
-        def healthConn = new URL(healthUrl).openConnection() as HttpURLConnection
-        healthConn.requestMethod = 'GET'
-        healthConn.connectTimeout = 5000
-        healthConn.readTimeout = 5000
-        
-        if (healthConn.responseCode != 200) {
-            throw new Exception("Ollama health check failed: ${healthConn.responseCode}")
-        }
-        
-        // Check if model is available using the local Ollama CLI
-        try {
-            def modelList = "ollama list".execute().text
-            if (!modelList.contains(model)) {
-                println "⚠️  Model '${model}' not found in local models."
-                println "    Available models: ${modelList.split('\n').findAll { it.trim() }.join(', ')}"
-                println "    Attempting to pull the model..."
-                
-                // Try to pull the model
-                def pullProcess = "ollama pull ${model}".execute()
-                pullProcess.waitFor()
-                
-                if (pullProcess.exitValue() != 0) {
-                    println "❌ Failed to pull model '${model}'. Error: ${pullProcess.err.text}"
-                    return false
-                }
-                println "✅ Successfully pulled model '${model}'"
-            }
-        } catch (Exception e) {
-            println "⚠️  Error checking model: ${e.message}"
-            return false
-        }
-        
-        println "✅ Ollama is running and model '${model}' is available"
+        def url = "http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}/api/tags"
+        def connection = new URL(url).openConnection()
+        connection.setConnectTimeout(5000)
+        def response = connection.inputStream.text
+        println "✅ Ollama: Connected and ready"
         return true
-        
     } catch (Exception e) {
-        println "❌ Ollama connection failed: ${e.message}"
-        println "   Make sure Ollama is running: ollama serve"
-        println "   Check if the model is downloaded: ollama pull ${config['OLLAMA_MODEL'] ?: 'qwen2.5:1.5b'}"
+        println "❌ Ollama: Failed (${e.message})"
         return false
     }
 }
 
-// Funkcja generowania standardowej odpowiedzi
-def generateStandardResponse(String sender, String subject, String body) {
-    def senderName = sender.split('@')[0].replace('.', ' ')
-        .split(' ').collect { it.capitalize() }.join(' ')
+def generateMockEmail() {
+    def emails = [
+        [from: "jan.kowalski@example.com", subject: "Pytanie o hosting VPS",
+         body: "Dzień dobry, interesuje mnie hosting VPS dla firmy. Proszę o ofertę.", priority: "Normal"],
+        [from: "anna.nowak@firma.pl", subject: "Reklamacja - problem z SSL",
+         body: "Certyfikat SSL wygasł i klienci nie mogą składać zamówień. Proszę o pilną pomoc.", priority: "High"],
+        [from: "admin@urgent.com", subject: "PILNE - Serwer nie odpowiada",
+         body: "Serwer produkcyjny nie działa od 30 minut. Straty wynoszą 5000 PLN/h!", priority: "Critical"],
+        [from: "dev@startup.tech", subject: "Backup bazy danych",
+         body: "Potrzebujemy skonfigurować automatyczny backup MongoDB. Kiedy można to zrobić?", priority: "Normal"],
+        [from: "sklep@ecommerce.pl", subject: "Zwiększenie zasobów przed Black Friday",
+         body: "Spodziewamy się 10x więcej ruchu. Potrzebujemy upgrade serwera do piątku.", priority: "High"],
+        [from: config['TEST_EMAIL'], subject: "Test automatyzacji emaili",
+         body: "To jest testowy email sprawdzający działanie systemu automatyzacji.", priority: "Low"]
+    ]
+    return emails[new Random().nextInt(emails.size())]
+}
 
-    def subjectLower = subject.toLowerCase()
-    def bodyLower = body.toLowerCase()
-
-    if (subjectLower.contains('pytanie') || bodyLower.contains('pytanie')) {
-        return """Dzień dobry ${senderName},
-
-Dziękuję za Twoje pytanie. Nasz zespół przeanalizuje Twoją sprawę i skontaktuje się z Tobą w ciągu 24 godzin.
-
-Pozdrawienia,
-Zespół obsługi klienta"""
-    } else if (subjectLower.contains('reklamacja') || bodyLower.contains('reklamacja')) {
-        return """Dzień dobry ${senderName},
-
-Przepraszamy za niedogodności. Twoja reklamacja została przekazana do odpowiedniego działu. Skontaktujemy się z Tobą w ciągu 48 godzin.
-
-Pozdrawienia,
-Zespół obsługi klienta"""
+def generateResponse(emailData, useOllama) {
+    if (useOllama) {
+        return generateOllamaResponse(emailData)
     } else {
-        return """Dzień dobry ${senderName},
-
-Dziękuję za Twój email. Twoja wiadomość została otrzymana i zostanie przetworzona w kolejności wpływu.
-
-Pozdrawienia,
-Zespół obsługi klienta"""
+        return generateStandardResponse(emailData)
     }
 }
 
-// Test Ollama before starting
-if (!testOllama(config)) {
-    println "\n⚠️ Ollama is not available. The system will continue but AI features will be disabled."
-    println "   You can still use the system with mock responses."
-    config['MOCK_EMAILS'] = 'true'
-    config['SEND_TEST_EMAILS'] = 'false'
-}
+def generateOllamaResponse(emailData) {
+    try {
+        def prompt = """Jesteś profesjonalnym asystentem technicznym. Otrzymałeś email:
 
-// Camel Main context
-Main main = new Main()
+Od: ${emailData.from}
+Temat: ${emailData.subject}
+Priorytet: ${emailData.priority}
+Treść: ${emailData.body}
 
-// RouteBuilder class - poprawna składnia dla Camel 4.4.0
-class EmailRouteBuilder extends RouteBuilder {
-    def config
+Napisz profesjonalną odpowiedź w języku polskim uwzględniając priorytet. Maksymalnie 150 słów."""
 
-    EmailRouteBuilder(config) {
-        this.config = config
-    }
+        def payload = new JsonBuilder([
+            model: config['OLLAMA_MODEL'],
+            prompt: prompt,
+            stream: false,
+            options: [
+                temperature: 0.7,
+                max_tokens: 200,
+                top_p: 0.9
+            ]
+        ])
 
-    void configure() {
+        def connection = new URL("http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}/api/generate").openConnection()
+        connection.requestMethod = 'POST'
+        connection.setRequestProperty('Content-Type', 'application/json')
+        connection.setRequestProperty('User-Agent', 'Camel-Groovy-Email-Processor')
+        connection.doOutput = true
+        connection.outputStream.write(payload.toString().bytes)
 
-        // Obsługa błędów
-        onException(Exception.class)
-            .log("❌ BŁĄD: \${exception.message}")
-            .handled(true)
-            .to("direct:handleError")
+        def response = new JsonSlurper().parseText(connection.inputStream.text)
+        def aiResponse = response.response?.trim()
 
-        // MOCK EMAILS lub RZECZYWISTE
-        if (config['MOCK_EMAILS'] == 'true') {
-            // Clean up the interval value by removing any comments or extra spaces
-            def intervalMs = (config['CHECK_INTERVAL_SECONDS'] ?: '60').trim().split(' ')[0].toInteger() * 1000
-            from("timer://mockTimer?period=${intervalMs}&delay=5000")
-                .routeId("mock-email-generator")
-                .log("🧪 Generowanie mock email co ${intervalMs}ms...")
-                .process { ex ->
-                    def mockEmails = [
-                        [from: "jan.kowalski@example.com", subject: "Pytanie o produkt",
-                         body: "Dzień dobry, interesuje mnie Państwa produkt XYZ. Proszę o informacje o cenie i dostępności."],
-                        [from: "anna.nowak@firma.pl", subject: "Reklamacja zamówienia",
-                         body: "Otrzymałam wadliwy produkt w zamówieniu nr 12345. Proszę o kontakt w sprawie zwrotu."],
-                        [from: config['TEST_EMAIL'], subject: "Test automatyzacji",
-                         body: "To jest testowy email do sprawdzenia systemu automatyzacji odpowiedzi."]
-                    ]
-                    def randomEmail = mockEmails[new Random().nextInt(mockEmails.size())]
-                    ex.in.setHeader("from", randomEmail.from)
-                    ex.in.setHeader("subject", randomEmail.subject)
-                    ex.in.body = randomEmail.body
-                }
-                .to("direct:processWithOllama")
+        if (aiResponse && aiResponse.length() > 20) {
+            return aiResponse
         } else {
-            // Budowanie URL IMAP z .env
-            def imapUrl = config['IMAP_PORT'] == '993' ?
-                "imaps://${config['IMAP_SERVER']}:${config['IMAP_PORT']}" :
-                "imap://${config['IMAP_SERVER']}:${config['IMAP_PORT']}"
-
-            from("${imapUrl}?" +
-                 "username=${config['IMAP_USERNAME']}" +
-                 "&password=${config['IMAP_PASSWORD']}" +
-                 "&delete=false" +
-                 "&unseen=true" +
-                 "&folderName=${config['IMAP_FOLDER']}" +
-                 "&delay=${config['CHECK_INTERVAL_SECONDS']}000" +
-                 "&maxMessagesPerPoll=${config['EMAIL_LIMIT']}")
-                .routeId("real-email-fetcher")
-                .log("📧 Email od: \${header.from}")
-                .to("direct:processWithOllama")
+            throw new Exception("Empty or invalid response from Ollama")
         }
 
-        // Przetwarzanie przez Ollama
-        from("direct:processWithOllama")
-            .routeId("ollama-processor")
-            .log("🤖 Przetwarzanie przez Ollama...")
-            .process { ex ->
-                def emailBody = ex.in.body?.toString() ?: ""
-                def sender = ex.in.getHeader("from")?.toString() ?: "unknown"
-                def subject = ex.in.getHeader("subject")?.toString() ?: "no subject"
-
-                // Przechowanie oryginalnych danych
-                ex.in.setHeader("originalSender", sender)
-                ex.in.setHeader("originalSubject", subject)
-
-                // Prompt dla Ollama
-                def prompt = """Otrzymałeś email od klienta:
-
-Od: ${sender}
-Temat: ${subject}
-Treść: ${emailBody}
-
-Napisz profesjonalną, pomocną odpowiedź w języku polskim. Odpowiedź powinna być:
-- Uprzejma i profesjonalna
-- Konkretna i adresująca problem klienta
-- Nie dłuższa niż 150 słów
-- Zakończona podpisem "Pozdrawienia, Zespół obsługi klienta"
-
-Odpowiedź:"""
-
-                // Payload dla Ollama API
-                def ollamaPayload = new JsonBuilder([
-                    model: config['OLLAMA_MODEL'],
-                    prompt: prompt,
-                    stream: false,
-                    options: [
-                        temperature: 0.7,
-                        max_tokens: 200
-                    ]
-                ])
-
-                ex.in.setHeader("Content-Type", "application/json")
-                ex.in.body = ollamaPayload.toString()
-            }
-            .doTry()
-                .to("http://${config['OLLAMA_HOST']}:${config['OLLAMA_PORT']}/api/generate")
-                .process { ex ->
-                    try {
-                        // Parsowanie odpowiedzi Ollama
-                        def jsonSlurper = new JsonSlurper()
-                        def response = jsonSlurper.parseText(ex.in.body.toString())
-                        def aiResponse = response.response?.trim()
-
-                        if (aiResponse && aiResponse.length() > 10) {
-                            ex.in.body = aiResponse
-                            log.info("✅ Odpowiedź Ollama: ${aiResponse.take(60)}...")
-                        } else {
-                            throw new Exception("Pusta lub zbyt krótka odpowiedź z Ollama")
-                        }
-                    } catch (Exception e) {
-                        log.error("❌ Błąd parsowania Ollama: ${e.message}")
-                        throw e
-                    }
-                }
-            .doCatch(Exception.class)
-                .log("🔄 Ollama failed, using standard response")
-                .process { ex ->
-                    def sender = ex.in.getHeader("originalSender")
-                    def subject = ex.in.getHeader("originalSubject")
-                    def body = ex.in.getHeader("originalBody")?.toString() ?: ""
-                    def standardResponse = generateStandardResponse(sender, subject, body)
-                    ex.in.body = standardResponse
-                }
-            .end()
-            .to("direct:sendReply")
-
-        // Wysyłanie odpowiedzi
-        from("direct:sendReply")
-            .routeId("email-sender")
-            .log("📤 Wysyłanie do: \${header.originalSender}")
-            .setHeader("To", simple("\${header.originalSender}"))
-            .setHeader("Subject", simple("Re: \${header.originalSubject}"))
-            .setHeader("From", simple("${config['FROM_EMAIL']}"))
-            .setHeader("Reply-To", simple("${config['REPLY_TO_EMAIL']}"))
-            .choice()
-                .when(simple("${config['MOCK_EMAILS']} == 'true'"))
-                    .log("📧 MOCK: Email wysłany do \${header.To}")
-                    .log("📧 MOCK: Temat: \${header.Subject}")
-                    .log("📧 MOCK: Treść: \${body}")
-                .otherwise()
-                    .process { ex ->
-                        // Budowanie URL SMTP z .env
-                        def smtpUrl = ""
-                        if (config['SMTP_PORT'] == '465') {
-                            smtpUrl = "smtps://${config['SMTP_SERVER']}:${config['SMTP_PORT']}"
-                        } else if (config['SMTP_PORT'] == '587') {
-                            smtpUrl = "smtp://${config['SMTP_SERVER']}:${config['SMTP_PORT']}?mail.smtp.starttls.enable=true"
-                        } else {
-                            smtpUrl = "smtp://${config['SMTP_SERVER']}:${config['SMTP_PORT']}"
-                        }
-                        ex.in.setHeader("smtpUrl", smtpUrl)
-                    }
-                    .recipientList(simple("\${header.smtpUrl}?" +
-                        "username=${config['SMTP_USERNAME']}&" +
-                        "password=${config['SMTP_PASSWORD']}"))
-            .end()
-            .log("✅ Odpowiedź wysłana!")
-
-        // Obsługa błędów
-        from("direct:handleError")
-            .routeId("error-handler")
-            .log("⚠️ Wysyłanie powiadomienia o błędzie")
-            .setBody(constant("Wystąpił błąd w systemie automatyzacji emaili. Sprawdź logi systemu."))
-            .setHeader("To", simple("${config['FROM_EMAIL']}"))
-            .setHeader("Subject", constant("BŁĄD: Email Automation System"))
-            .setHeader("From", simple("${config['FROM_EMAIL']}"))
-            .choice()
-                .when(simple("${config['MOCK_EMAILS']} == 'true'"))
-                    .log("📧 MOCK ERROR EMAIL: \${body}")
-                .otherwise()
-                    .process { ex ->
-                        def smtpUrl = config['SMTP_PORT'] == '465' ?
-                            "smtps://${config['SMTP_SERVER']}:${config['SMTP_PORT']}" :
-                            "smtp://${config['SMTP_SERVER']}:${config['SMTP_PORT']}"
-                        ex.in.setHeader("smtpUrl", smtpUrl)
-                    }
-                    .recipientList(simple("\${header.smtpUrl}?" +
-                        "username=${config['SMTP_USERNAME']}&" +
-                        "password=${config['SMTP_PASSWORD']}"))
-            .end()
+    } catch (Exception e) {
+        println "⚠️ Ollama failed for ${emailData.from}: ${e.message}"
+        return generateStandardResponse(emailData)
     }
 }
 
-// Add route builder to main configuration
-main.configure().addRoutesBuilder(new EmailRouteBuilder(config))
+def generateStandardResponse(emailData) {
+    def name = emailData.from.split('@')[0].replace('.', ' ').split(' ').collect { it.capitalize() }.join(' ')
+    def priority = emailData.priority
 
-// Add shutdown hook
-Runtime.getRuntime().addShutdownHook(new Thread() {
-    void run() {
-        println "\n🛑 Shutting down..."
-        main.stop()
+    def responseTime = ""
+    switch (priority) {
+        case "Critical":
+            responseTime = "2 godzin"
+            break
+        case "High":
+            responseTime = "4 godzin"
+            break
+        case "Normal":
+            responseTime = "24 godzin"
+            break
+        default:
+            responseTime = "48 godzin"
     }
-})
 
-// Start Camel
+    if (emailData.subject.toLowerCase().contains('pilne') || priority == 'Critical') {
+        return """Dzień dobry ${name},
+
+Otrzymaliśmy Państwa pilną wiadomość (priorytet: ${priority}).
+
+Nasz zespół techniczny został natychmiast powiadomiony i skontaktuje się z Państwem w ciągu ${responseTime}.
+
+Ticket ID: ${UUID.randomUUID().toString().take(8).toUpperCase()}
+
+W razie dalszych pytań prosimy o kontakt pod numerem: +48 123 456 789
+
+Pozdrawienia,
+Zespół Obsługi Technicznej
+24/7 Support Center"""
+    } else {
+        return """Dzień dobry ${name},
+
+Dziękujemy za Państwa wiadomość dotyczącą: "${emailData.subject}"
+
+Priorytet: ${priority}
+Czas odpowiedzi: do ${responseTime}
+Ticket ID: ${UUID.randomUUID().toString().take(8).toUpperCase()}
+
+Państwa zapytanie zostało przekazane do odpowiedniego specjalisty, który skontaktuje się z Państwem w określonym czasie.
+
+Pozdrawienia,
+Zespół Obsługi Klienta"""
+    }
+}
+
+// === MAIN APPLICATION ===
+def ollamaAvailable = testOllama()
+
+println """
+🚀 STARTING EMAIL PROCESSOR
+==========================
+📧 Processing up to ${maxEmails} emails
+🤖 AI Responses: ${ollamaAvailable ? 'Enabled' : 'Disabled'}
+⏳ Check interval: ${config['CHECK_INTERVAL_SECONDS']} seconds
+
+Starting routes...
+"""
+
 try {
-    println "🚀 Starting Camel routes..."
-    main.start()
-    
-    // Keep the main thread alive
-    while (true) {
-        Thread.sleep(Long.MAX_VALUE)
-    }
+    Main main = new Main()
+
+    // Configure Camel context
+    main.configure().withRoutesBuilder(new RouteBuilder() {
+        @Override
+        void configure() throws Exception {
+
+            // Global error handler z retry
+            errorHandler(deadLetterChannel("direct:errorHandler")
+                .maximumRedeliveries(3)
+                .redeliveryDelay(2000)
+                .retryAttemptedLogLevel(org.apache.camel.LoggingLevel.WARN))
+
+            // Main email processing timer
+            def intervalMs = Integer.parseInt(config['CHECK_INTERVAL_SECONDS']) * 1000
+
+            from("timer://emailProcessor?period=${intervalMs}&delay=5000")
+                .routeId("email-processor")
+                .log("🔄 Timer triggered (${intervalMs}ms interval)")
+                .process { exchange ->
+                    if (metrics.emailCount >= metrics.maxEmails) {
+                        log.info("🎯 Reached email limit: ${metrics.emailCount}/${metrics.maxEmails}")
+                        exchange.setProperty("completed", true)
+                        return
+                    }
+
+                    def emailData = generateMockEmail()
+                    metrics.incrementEmailCount()
+
+                    log.info("📧 Processing email ${metrics.emailCount}/${metrics.maxEmails}: ${emailData.subject} [${emailData.priority}]")
+
+                    // Store email data
+                    exchange.setProperty("emailData", emailData)
+                    exchange.in.setHeader("emailFrom", emailData.from)
+                    exchange.in.setHeader("emailSubject", emailData.subject)
+                    exchange.in.setHeader("emailPriority", emailData.priority)
+                    exchange.in.body = emailData.body
+                }
+                .choice()
+                    .when(exchangeProperty("completed").isEqualTo(true))
+                        .log("✅ Email processing completed!")
+                        .to("direct:showFinalStats")
+                    .otherwise()
+                        .to("direct:processWithAI")
+                .end()
+
+            // AI Processing
+            from("direct:processWithAI")
+                .routeId("ai-processor")
+                .log("🤖 Processing with ${ollamaAvailable ? 'Ollama AI' : 'Standard Response'}")
+                .process { exchange ->
+                    def emailData = exchange.getProperty("emailData")
+
+                    try {
+                        def response = generateResponse(emailData, ollamaAvailable)
+                        exchange.in.body = response
+                        metrics.incrementSuccessCount()
+                        log.info("✅ Response generated successfully")
+                    } catch (Exception e) {
+                        metrics.incrementErrorCount()
+                        log.error("❌ Response generation failed: ${e.message}")
+                        exchange.in.body = "Błąd przetwarzania. Skontaktujemy się wkrótce."
+                    }
+                }
+                .to("direct:sendEmail")
+
+            // Email sending (mock)
+            from("direct:sendEmail")
+                .routeId("email-sender")
+                .log("📤 Sending response to: \${header.emailFrom}")
+                .process { exchange ->
+                    def priority = exchange.in.getHeader("emailPriority")
+                    def subject = exchange.in.getHeader("emailSubject")
+                    def from = exchange.in.getHeader("emailFrom")
+                    def body = exchange.in.body
+
+                    // Mock email sending
+                    log.info("📧 === EMAIL SENT ===")
+                    log.info("📬 To: ${from}")
+                    log.info("📝 Re: ${subject}")
+                    log.info("⚡ Priority: ${priority}")
+                    log.info("📄 Body: ${body.toString().take(100)}...")
+                    log.info("✅ Email delivered!")
+                }
+                .to("direct:updateMetrics")
+
+            // Metrics update
+            from("direct:updateMetrics")
+                .routeId("metrics-updater")
+                .process { exchange ->
+                    def metrics = EmailMetrics.getMetrics()
+                    log.info("📊 Metrics - Total: ${metrics.totalEmails}, Success: ${metrics.successEmails}, Errors: ${metrics.errorEmails}, Rate: ${metrics.successRate.round(1)}%")
+                }
+
+            // Error handler
+            from("direct:errorHandler")
+                .routeId("error-handler")
+                .log("❌ Error handler triggered: \${exception.message}")
+                .process { exchange ->
+                    errorCount++
+                    def error = exchange.getProperty("CamelExceptionCaught")
+                    log.error("Error details: ${error?.message}")
+                }
+
+            // Progress monitor
+            from("timer://progressMonitor?period=60000&delay=30000")
+                .routeId("progress-monitor")
+                .process { exchange ->
+                    def metricsData = metrics.getMetrics()
+                    def uptime = (metricsData.uptimeSeconds / 60).round(1)
+
+                    log.info("""
+📊 === EMAIL AUTOMATION STATS ===
+⏰ Uptime: ${uptime} minutes
+📧 Emails processed: ${metricsData.totalEmails}/${metrics.maxEmails}
+✅ Success rate: ${metricsData.successRate.round(1)}%
+🔄 Processing rate: ${metricsData.emailsPerSecond.round(2)} emails/sec
+🤖 AI Engine: ${ollamaAvailable ? 'Ollama' : 'Standard'}
+📊 Remaining: ${metricsData.remainingEmails} emails
+=================================""")
+                }
+
+            // Final statistics
+            from("direct:showFinalStats")
+                .routeId("final-stats")
+                .process { exchange ->
+                    def metricsData = metrics.getMetrics()
+                    def totalTime = (metricsData.uptimeSeconds / 60).round(1)
+
+                    log.info("""
+🎯 === FINAL STATISTICS ===
+📧 Total emails processed: ${metricsData.totalEmails}
+✅ Successful: ${metricsData.successEmails}
+❌ Errors: ${metricsData.errorEmails}
+📊 Success rate: ${metricsData.successRate.round(1)}%
+⏰ Total processing time: ${totalTime} minutes
+🤖 AI responses: ${ollamaAvailable ? metrics.successCount : 0}
+📝 Standard responses: ${ollamaAvailable ? 0 : metrics.successCount}
+🔄 Average rate: ${metricsData.emailsPerSecond.round(2)} emails/sec
+==========================""")
+                }
+
+            // Simple health check endpoint
+            from("timer://healthCheck?period=30000")
+                .routeId("health-check")
+                .process { exchange ->
+                    def metricsData = metrics.getMetrics()
+                    log.info("System health check - Processed: ${metricsData.totalEmails} emails, Success rate: ${metricsData.successRate.round(1)}%")
+                }
+        }
+    })
+
+    println """
+✅ ROUTES CONFIGURED SUCCESSFULLY
+=============================
+📧 Processing: ${metrics.maxEmails} emails
+⏱️  Interval: ${config['CHECK_INTERVAL_SECONDS']}s
+🤖 AI: ${ollamaAvailable ? 'Ollama (' + config['OLLAMA_MODEL'] + ')' : 'Standard responses'}
+
+🔄 Email processor is running...
+Press Ctrl+C to stop
+"""
+
+    // Add shutdown hook
+    Runtime.getRuntime().addShutdownHook(new Thread() {
+        void run() {
+            println "\n🛑 Shutting down Email Automation System..."
+            def metricsData = metrics.getMetrics()
+            println "📊 Final stats: ${metricsData.totalEmails} emails, ${metricsData.successRate.round(1)}% success rate"
+            main.stop()
+        }
+    })
+
+    // Start the application
+    main.run()
+
 } catch (Exception e) {
-    println "❌ Error starting Camel: ${e.message}"
+    println "❌ CRITICAL ERROR: ${e.message}"
+    println "📋 Stack trace:"
     e.printStackTrace()
     System.exit(1)
-} finally {
-    main.stop()
 }

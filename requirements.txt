@@ -9,3 +9,4 @@ nltk>=3.6.5
 beautifulsoup4>=4.10.0
 requests>=2.27.1
 schedule>=1.2.0
+prefect>=2.0.0
