@@ -309,8 +309,8 @@ You can extend this example by:
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markdown.min.js"></script>
 
 <!-- Taskinity custom scripts -->
-<script src="../../static/js/dsl-flow-visualizer.js"></script>
-<script src="../../static/js/markdown-syntax-highlighter.js"></script>
+<script src="https://taskinity.github.io/python/static/js/dsl-flow-visualizer.js"></script>
+<script src="https://taskinity.github.io/python/static/js/markdown-syntax-highlighter.js"></script>
 
 <script>
   // Initialize both scripts when the page loads
