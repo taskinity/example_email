@@ -6,69 +6,43 @@ services:
     container_name: taskinity-email-processor
     volumes:
       - ../../..:/app
+      - ./logs:/app/example_email/logs
     working_dir: /app/example_email
     environment:
-      - IMAP_SERVER=mailserver
-      - IMAP_PORT=143
-      - IMAP_USERNAME=user@taskinity.org
-      - IMAP_PASSWORD=password123
-      - SMTP_SERVER=mailserver
-      - SMTP_PORT=25
-      - SMTP_USERNAME=user@taskinity.org
-      - SMTP_PASSWORD=password123
-      - FROM_EMAIL=user@taskinity.org
-      - REPLY_TO_EMAIL=support@taskinity.org
+      - SMTP_SERVER=mailhog
+      - SMTP_PORT=1025  # MailHog SMTP port
+      - SMTP_USERNAME=
+      - SMTP_PASSWORD=
+      - FROM_EMAIL=user@example.com
+      - REPLY_TO_EMAIL=support@example.com
       - PYTHONPATH=/app
+      - MOCK_EMAILS=true
+      - CONTINUOUS_MODE=true
+      - KEEP_RUNNING=true
+      - LOG_LEVEL=INFO
     command: >
-      bash -c "pip install -r requirements.txt &&
-               pip install -e /app/python &&
-               export PYTHONPATH=/app/python:$PYTHONPATH &&
-               cd /app/example_email &&
-               python -c 'import sys; print(\"Python path:\", sys.path)' &&
+      bash -c "mkdir -p logs && \
+               pip install -r requirements.txt && \
+               pip install -e /app/python && \
+               export PYTHONPATH=/app/python:$PYTHONPATH && \
+               cd /app/example_email && \
+               python -c 'import sys; print(\"Python path:\", sys.path)' && \
                python flow.py --mock"
     depends_on:
-      - mailserver
+      - mailhog
     networks:
       - taskinity-network
+    restart: unless-stopped
 
-  mailserver:
-    image: mailserver/docker-mailserver:latest
-    container_name: taskinity-mailserver
-    hostname: mail.taskinity.org
-    domainname: taskinity.org
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailhog
     ports:
-      - "25:25"
-      - "143:143"
-      - "587:587"
-      - "993:993"
-    volumes:
-      - maildata:/var/mail
-      - mailstate:/var/mail-state
-      - maillogs:/var/log/mail
-      - ./config:/tmp/docker-mailserver
-    environment:
-      - ENABLE_SPAMASSASSIN=0
-      - ENABLE_CLAMAV=0
-      - ENABLE_FAIL2BAN=0
-      - ENABLE_POSTGREY=0
-      - ENABLE_SASLAUTHD=0
-      - ONE_DIR=1
-      - DMS_DEBUG=0
-      - SSL_TYPE=none
-      - PERMIT_DOCKER=network
-      - ENABLE_IMAP=1
-      - ENABLE_POP3=0
-    cap_add:
-      - NET_ADMIN
-      - SYS_PTRACE
-    restart: always
+      - "1025:1025"  # SMTP server
+      - "8025:8025"  # Web UI
     networks:
       - taskinity-network
-
-volumes:
-  maildata:
-  mailstate:
-  maillogs:
+    restart: unless-stopped
 
 networks:
   taskinity-network:
