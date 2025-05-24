@@ -1,0 +1,64 @@
+{
+    "imap": {
+        "server": "imap.gmail.com",
+        "port": 993,
+        "username": "",
+        "password": "",
+        "folder": "INBOX",
+        "ssl": true
+    },
+    "smtp": {
+        "server": "smtp.gmail.com",
+        "port": 587,
+        "username": "",
+        "password": "",
+        "from_email": "",
+        "use_tls": true
+    },
+    "auto_reply": {
+        "enabled": true,
+        "criteria": {
+            "subject_contains": [
+                "pytanie",
+                "zapytanie",
+                "pomoc",
+                "wsparcie"
+            ],
+            "from_domains": [
+                "example.com",
+                "gmail.com"
+            ],
+            "priority_keywords": [
+                "pilne",
+                "wa\u017cne",
+                "urgent",
+                "asap"
+            ]
+        },
+        "templates": {
+            "default": "Dzi\u0119kujemy za wiadomo\u015b\u0107. Odpowiemy najszybciej jak to mo\u017cliwe.",
+            "priority": "Dzi\u0119kujemy za piln\u0105 wiadomo\u015b\u0107. Zajmiemy si\u0119 ni\u0105 priorytetowo.",
+            "support": "Dzi\u0119kujemy za zg\u0142oszenie. Nasz zesp\u00f3\u0142 wsparcia skontaktuje si\u0119 z Tob\u0105 wkr\u00f3tce."
+        },
+        "signature": "\n\nPozdrawiamy,\nZesp\u00f3\u0142 taskinity",
+        "reply_to_all": false,
+        "add_original_message": true,
+        "cooldown_hours": 24
+    },
+    "processing": {
+        "check_interval_seconds": 60,
+        "max_emails_per_batch": 10,
+        "save_attachments": true,
+        "attachments_folder": "/home/tom/github/taskinity/examples/email_processing/emails/attachments",
+        "archive_processed": true,
+        "archive_folder": "Processed"
+    },
+    "flows": {
+        "trigger_flow_on_email": true,
+        "flow_mapping": {
+            "support": "support_flow.dsl",
+            "order": "order_processing.dsl",
+            "complaint": "complaint_handling.dsl"
+        }
+    }
+}

@@ -1,0 +1,27 @@
+# Main docker-compose.yml for Email Processing Example
+# This file serves as a router to the different Docker environments
+
+# To use a specific environment, run one of the following commands:
+# - Basic environment: docker-compose -f docker/basic/docker-compose.yml up -d
+# - Mock environment: docker-compose -f docker/mock/docker-compose.yml up -d
+# - Full environment: docker-compose -f docker/full/docker-compose.yml up -d
+
+# Or use the Makefile commands:
+# - make docker-up-basic
+# - make docker-up-mock
+# - make docker-up-full
+
+version: '3.8'
+
+# Default configuration - uses the mock environment
+services:
+  # This service just prints a message and exits
+  router:
+    image: alpine
+    container_name: taskinity-email-router
+    command: >
+      sh -c "echo '\n\n=====================================================\n\nPlease use one of the specific Docker environments:\n\n- Basic: make docker-up-basic\n- Mock: make docker-up-mock\n- Full: make docker-up-full\n\nOr use docker-compose directly:\n\n- Basic: docker-compose -f docker/basic/docker-compose.yml up -d\n- Mock: docker-compose -f docker/mock/docker-compose.yml up -d\n- Full: docker-compose -f docker/full/docker-compose.yml up -d\n\n=====================================================\n\n' && exit 0"
+
+# For backward compatibility, you can still use:
+# docker-compose up
+# This will just show the message above and exit

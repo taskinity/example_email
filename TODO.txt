@@ -1,0 +1,22 @@
+/home/tom/github/taskprovision/hubmail/dsl/examples/email_processing
+stworz plik makefile z wszystkimi mozliwymi testami, uruchomieniami, przykladami
+
+
+zaktualziuj w readme scerizki do roznych plikow
+
+podziel pliki na mniejsze, na pojedyncze funkcje, aby ulatwic identyfikacje plo pllikach, jak skonstruowany jest flow
+podaj przyklady dsl uzycia w kontekscie procesowania, odbierani i wysylani EMAIL w srodowisku docker
+stworz podfoldery dla docker compose z nazwa  implementacji z folderu
+w podfodlerze znajdowac sie powinny
+*/docker-compose.yml
+*/README.md
+*/flow.dsl
+*/flow.py
+*/.env
+
+W podfolderach nie powinno byc pythona, bo onse powinny być w /home/tom/github/taskprovision/hubmail/dsl/examples/email_processing
+a w podfolderach powinny byc tylko pliki konfiguracyjne, aby ulatwic uruchomienie i testowanie
+dlatego wazny jest podzial na mniejsze pliki w glownym i dodawac tam dekoratory, aby moc importowac w podfolderze tylko do flow.py funkcje ipliki python
+
+
+
